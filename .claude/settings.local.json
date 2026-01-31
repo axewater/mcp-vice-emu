@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(cmd /c dir /b \"C:\\\\bin\\\\vice\\\\bin\\\\x*.exe\")",
+      "Bash(powershell -Command:*)",
+      "Bash(npm install)",
+      "Bash(wc:*)",
+      "Bash(ca65:*)",
+      "Bash(ld65:*)",
+      "Bash(python:*)",
+      "Bash(node:*)",
+      "Bash(npm run build:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:vice-emu.sourceforge.io)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(C:binvicebinx64sc.exe --version)",
+      "Bash(\"C:\\\\bin\\\\vice\\\\bin\\\\x64sc.exe\" --version)"
+    ]
+  }
+}

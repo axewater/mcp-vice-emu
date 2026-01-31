@@ -1,0 +1,35 @@
+{
+  "name": "@watercube/mcp-vice-emu",
+  "version": "0.1.0",
+  "description": "MCP server for debugging Commodore 64/128/VIC-20 programs in VICE emulator",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-vice-emu": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "vice",
+    "c64",
+    "commodore",
+    "emulator",
+    "debugging"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

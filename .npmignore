@@ -1,0 +1,6 @@
+src/
+examples/
+tsconfig.json
+*.log
+.git/
+node_modules/

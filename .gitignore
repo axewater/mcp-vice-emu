@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.log
+*.png
+*.d64
+*.prg
+*.crt
+.DS_Store
