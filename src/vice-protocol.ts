@@ -4,6 +4,7 @@
  */
 
 import { Socket } from 'net';
+import { writeFileSync } from 'fs';
 
 // Protocol constants
 const STX = 0x02;
@@ -341,32 +342,31 @@ export class ViceProtocol {
 
   /**
    * Set CPU registers
+   * Payload format: MS(1) + RC(2) + [IS(1) + RI(1) + RV(2)] * RC
+   * IS is ALWAYS 3 (size of RI + RV, excluding IS byte itself)
+   * RV is ALWAYS 2 bytes (little-endian)
    */
   async registersSet(registers: Partial<ViceRegisters>, memspace: number = MEMSPACE.MAIN_MEMORY): Promise<void> {
-    const entries: Array<{ id: number; size: number; value: number }> = [];
+    const entries: Array<{ id: number; value: number }> = [];
 
-    if (registers.A !== undefined) entries.push({ id: REG.A, size: 1, value: registers.A });
-    if (registers.X !== undefined) entries.push({ id: REG.X, size: 1, value: registers.X });
-    if (registers.Y !== undefined) entries.push({ id: REG.Y, size: 1, value: registers.Y });
-    if (registers.PC !== undefined) entries.push({ id: REG.PC, size: 2, value: registers.PC });
-    if (registers.SP !== undefined) entries.push({ id: REG.SP, size: 1, value: registers.SP });
-    if (registers.FLAGS !== undefined) entries.push({ id: REG.FLAGS, size: 1, value: registers.FLAGS });
+    if (registers.A !== undefined) entries.push({ id: REG.A, value: registers.A });
+    if (registers.X !== undefined) entries.push({ id: REG.X, value: registers.X });
+    if (registers.Y !== undefined) entries.push({ id: REG.Y, value: registers.Y });
+    if (registers.PC !== undefined) entries.push({ id: REG.PC, value: registers.PC });
+    if (registers.SP !== undefined) entries.push({ id: REG.SP, value: registers.SP });
+    if (registers.FLAGS !== undefined) entries.push({ id: REG.FLAGS, value: registers.FLAGS });
 
-    const payloadSize = 2 + entries.reduce((sum, e) => sum + 2 + e.size, 0);
+    const payloadSize = 3 + entries.length * 4; // MS(1) + RC(2) + 4 bytes per register
     const payload = Buffer.alloc(payloadSize);
     payload.writeUInt8(memspace, 0);
-    payload.writeUInt8(entries.length, 1);
+    payload.writeUInt16LE(entries.length, 1);  // RC is 2 bytes!
 
-    let offset = 2;
+    let offset = 3;  // Start after MS(1) + RC(2)
     for (const entry of entries) {
-      payload.writeUInt8(entry.size, offset);
-      payload.writeUInt8(entry.id, offset + 1);
-      if (entry.size === 1) {
-        payload.writeUInt8(entry.value, offset + 2);
-      } else {
-        payload.writeUInt16LE(entry.value, offset + 2);
-      }
-      offset += 2 + entry.size;
+      payload.writeUInt8(3, offset);               // IS: always 3 (size of RI + RV)
+      payload.writeUInt8(entry.id, offset + 1);    // RI: register ID
+      payload.writeUInt16LE(entry.value, offset + 2);  // RV: always 2 bytes (little-endian)
+      offset += 4;  // Always 4 bytes per item: IS(1) + RI(1) + RV(2)
     }
 
     await this.sendCommand(CMD.REGISTERS_SET, payload);
@@ -444,14 +444,15 @@ export class ViceProtocol {
 
   /**
    * Autostart a program
+   * Payload format: RL(1) + FI(2) + FL(1) + FN(FL bytes)
    */
   async autostart(filename: string, runMode: number = 0, fileIndex: number = 0): Promise<void> {
     const filenameBuffer = Buffer.from(filename, 'utf8');
     const payload = Buffer.alloc(4 + filenameBuffer.length);
-    payload.writeUInt8(runMode, 0);
-    payload.writeUInt8(filenameBuffer.length, 1);
-    filenameBuffer.copy(payload, 2);
-    payload.writeUInt16LE(fileIndex, 2 + filenameBuffer.length);
+    payload.writeUInt8(runMode, 0);              // RL: Run after loading
+    payload.writeUInt16LE(fileIndex, 1);         // FI: File index (2 bytes)
+    payload.writeUInt8(filenameBuffer.length, 3); // FL: Filename length
+    filenameBuffer.copy(payload, 4);             // FN: Filename
 
     await this.sendCommand(CMD.AUTOSTART, payload);
   }
@@ -513,16 +514,105 @@ export class ViceProtocol {
   }
 
   /**
-   * Get current screen as PNG
+   * Get current screen buffer
+   * Payload format: VC(1) + FM(1)
+   * Format values: 0x00=Indexed8, 0x01=RGB, 0x02=BGR, 0x03=RGBA, 0x04=BGRA
+   * Returns raw pixel buffer - NOT an encoded image format like PNG/BMP
    */
-  async getScreen(useVic: boolean = true): Promise<Buffer> {
-    const payload = Buffer.alloc(2);
-    payload.writeUInt8(useVic ? 1 : 0, 0);
-    payload.writeUInt8(1, 1); // Format: PNG
+  async getScreen(useVic: boolean = true, format: number = 0x00): Promise<{
+    width: number;
+    height: number;
+    bpp: number;
+    data: Buffer;
+  }> {
+    console.error(`[SCREEN_GET] ===== STARTING SCREENSHOT CAPTURE =====`);
+    console.error(`[SCREEN_GET] Request parameters: useVic=${useVic}, format=${format}`);
 
+    const payload = Buffer.alloc(2);
+    payload.writeUInt8(useVic ? 1 : 0, 0);  // VC: Use VIC-II
+    payload.writeUInt8(format, 1);           // FM: Format (default 0 = Indexed8)
+
+    console.error(`[SCREEN_GET] Sending command to VICE...`);
     const response = await this.sendCommand(CMD.SCREEN_GET, payload);
 
-    // Response: [WIDTH (2)] [HEIGHT (2)] [BPP (1)] [IMAGE_DATA...]
-    return response.subarray(5); // Skip dimensions + BPP
+    // DEBUG: Log response details
+    console.error(`[SCREEN_GET] ===== RESPONSE RECEIVED =====`);
+    console.error(`[SCREEN_GET] Total response length: ${response.length} bytes`);
+    console.error(`[SCREEN_GET] First 16 bytes (header):`, Array.from(response.subarray(0, Math.min(16, response.length))).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' '));
+    console.error(`[SCREEN_GET] First 64 bytes (hex):`, response.subarray(0, Math.min(64, response.length)).toString('hex'));
+
+    if (response.length > 64) {
+      console.error(`[SCREEN_GET] Bytes 64-128:`, response.subarray(64, Math.min(128, response.length)).toString('hex'));
+    }
+
+    if (response.length > 128) {
+      console.error(`[SCREEN_GET] Last 64 bytes:`, response.subarray(Math.max(0, response.length - 64)).toString('hex'));
+    }
+
+    // DEBUG: Save raw response to file for analysis
+    const rawFilename = `vice-screen-response-${Date.now()}.bin`;
+    writeFileSync(rawFilename, response);
+    console.error(`[SCREEN_GET] Raw response saved to ${rawFilename}`);
+
+    // Response format from VICE SCREEN_GET:
+    // [0-1]   LENGTH_LE_16 (header length)
+    // [2-3]   Reserved/Unknown
+    // [4-5]   Full frame width (504, includes borders)
+    // [6-7]   Full frame height (312, includes borders)
+    // [8-11]  Unknown fields
+    // [12-13] Visible screen width (320)
+    // [14-15] Visible screen height (200)
+    // [16]    BPP (8 for indexed)
+    // [17+]   Image data (full frame: 504x312 bytes)
+    // NOTE: Using full frame dimensions since image data contains the full frame
+    console.error(`[SCREEN_GET] ===== PARSING RESPONSE =====`);
+
+    if (response.length < 17) {
+      console.error(`[SCREEN_GET] ERROR: Response too short! Need at least 17 bytes, got ${response.length}`);
+      throw new Error(`Response too short: ${response.length} bytes`);
+    }
+
+    const lengthField = response.readUInt16LE(0);
+    console.error(`[SCREEN_GET] Length field (bytes 0-1): ${lengthField} (0x${lengthField.toString(16).padStart(4, '0')})`);
+
+    // Read full frame dimensions (actual image data size)
+    const width = response.readUInt16LE(4);
+    const height = response.readUInt16LE(6);
+    const bpp = response.readUInt8(16);
+
+    // Also read visible dimensions for reference
+    const visibleWidth = response.readUInt16LE(12);
+    const visibleHeight = response.readUInt16LE(14);
+
+    console.error(`[SCREEN_GET] Full frame: ${width}x${height}`);
+    console.error(`[SCREEN_GET] Visible area: ${visibleWidth}x${visibleHeight}`);
+    console.error(`[SCREEN_GET] Bits per pixel: ${bpp}`);
+    console.error(`[SCREEN_GET] Bytes per pixel: ${bpp / 8}`);
+
+    const imageData = response.subarray(17);
+    console.error(`[SCREEN_GET] Image data offset: 17`);
+    console.error(`[SCREEN_GET] Image data length: ${imageData.length} bytes`);
+
+    const expectedDataSize = width * height * (bpp / 8);
+    console.error(`[SCREEN_GET] Expected data size: ${expectedDataSize} bytes`);
+    console.error(`[SCREEN_GET] Data size match: ${imageData.length === expectedDataSize ? 'YES' : 'NO (MISMATCH!)'}`);
+
+    if (imageData.length !== expectedDataSize) {
+      console.error(`[SCREEN_GET] WARNING: Size mismatch! Missing ${expectedDataSize - imageData.length} bytes`);
+    }
+
+    // DEBUG: Save parsed image data separately
+    const imageDataFilename = `vice-screen-imagedata-${Date.now()}.bin`;
+    writeFileSync(imageDataFilename, imageData);
+    console.error(`[SCREEN_GET] Parsed image data saved to ${imageDataFilename}`);
+    console.error(`[SCREEN_GET] First 32 bytes of image data:`, imageData.subarray(0, Math.min(32, imageData.length)).toString('hex'));
+    console.error(`[SCREEN_GET] ===== SCREENSHOT CAPTURE COMPLETE =====`);
+
+    return {
+      width,
+      height,
+      bpp,
+      data: imageData
+    };
   }
 }
