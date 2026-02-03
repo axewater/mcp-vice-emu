@@ -63,7 +63,6 @@ Claude Code will:
 ### Execution Control
 - `vice_step` - Execute N instructions
 - `vice_continue` - Resume execution until breakpoint
-- `vice_advance_frame` - Run until next frame/raster line
 - `vice_execute_until_return` - Run until RTS/RTI
 
 ### Inspection

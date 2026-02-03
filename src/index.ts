@@ -603,30 +603,16 @@ async function handleToolCall(name: string, args: any): Promise<{ content: Array
 
       case 'vice_screenshot': {
         if (!connection?.connected) throw new Error('Not connected to VICE');
-        console.error(`[SCREENSHOT] ===== STARTING SCREENSHOT PROCESSING =====`);
 
         const protocol = connection.getProtocol();
-        const screenData = await protocol.getScreen(true, 0); // Always use Indexed8 format
-
-        console.error(`[SCREENSHOT] ===== RECEIVED SCREEN DATA =====`);
-        console.error(`[SCREENSHOT] Width: ${screenData.width}, Height: ${screenData.height}, BPP: ${screenData.bpp}`);
-        console.error(`[SCREENSHOT] Data buffer length: ${screenData.data.length} bytes`);
-        console.error(`[SCREENSHOT] First 32 bytes of data:`, screenData.data.subarray(0, Math.min(32, screenData.data.length)).toString('hex'));
-
-        // Save screen data to file for analysis
-        const screenDataFilename = `vice-screendata-${Date.now()}.bin`;
-        writeFileSync(screenDataFilename, screenData.data);
-        console.error(`[SCREENSHOT] Screen data saved to ${screenDataFilename}`);
+        const screenData = await protocol.getScreen(true, 0); // Indexed8 format
 
         // Generate filename with .png extension
         const baseFilename = args.filename || `vice-screen-${Date.now()}`;
         const filename = baseFilename.endsWith('.png') ? baseFilename : `${baseFilename}.png`;
         const fullPath = resolve(filename);
 
-        console.error(`[SCREENSHOT] ===== CREATING PNG =====`);
-        console.error(`[SCREENSHOT] Output file: ${fullPath}`);
-
-        // Create PNG
+        // Create PNG with RGBA color type
         const png = new PNG({
           width: screenData.width,
           height: screenData.height,
@@ -634,13 +620,7 @@ async function handleToolCall(name: string, args: any): Promise<{ content: Array
           inputColorType: 6
         });
 
-        console.error(`[SCREENSHOT] PNG buffer allocated: ${png.data.length} bytes`);
-
-        // Convert Indexed8 pixel data to RGBA format for PNG using C64 palette
-        const pixelCount = screenData.width * screenData.height;
-        console.error(`[SCREENSHOT] Total pixels to convert: ${pixelCount}`);
-        console.error(`[SCREENSHOT] Converting Indexed8 palette data to RGBA...`);
-
+        // C64 color palette
         const c64Palette = [
           [0x00, 0x00, 0x00], [0xFF, 0xFF, 0xFF], [0x88, 0x00, 0x00], [0xAA, 0xFF, 0xEE],
           [0xCC, 0x44, 0xCC], [0x00, 0xCC, 0x55], [0x00, 0x00, 0xAA], [0xEE, 0xEE, 0x77],
@@ -648,12 +628,9 @@ async function handleToolCall(name: string, args: any): Promise<{ content: Array
           [0x77, 0x77, 0x77], [0xAA, 0xFF, 0x66], [0x00, 0x88, 0xFF], [0xBB, 0xBB, 0xBB]
         ];
 
-        let pixelsConverted = 0;
+        // Convert Indexed8 palette data to RGBA
+        const pixelCount = screenData.width * screenData.height;
         for (let i = 0; i < pixelCount; i++) {
-          if (i >= screenData.data.length) {
-            console.error(`[SCREENSHOT] WARNING: Ran out of source data at pixel ${i}/${pixelCount}`);
-            break;
-          }
           const paletteIndex = screenData.data[i] & 0x0F;
           const color = c64Palette[paletteIndex];
           const pngOffset = i * 4;
@@ -661,20 +638,11 @@ async function handleToolCall(name: string, args: any): Promise<{ content: Array
           png.data[pngOffset + 1] = color[1]; // G
           png.data[pngOffset + 2] = color[2]; // B
           png.data[pngOffset + 3] = 255;      // A
-          pixelsConverted++;
         }
-        console.error(`[SCREENSHOT] Converted ${pixelsConverted} pixels from palette data`);
 
-        console.error(`[SCREENSHOT] ===== ENCODING PNG =====`);
-        console.error(`[SCREENSHOT] First 32 bytes of PNG data:`, png.data.subarray(0, 32).toString('hex'));
-
-        // Save PNG file
+        // Encode and save PNG
         const pngBuffer = PNG.sync.write(png);
-        console.error(`[SCREENSHOT] PNG encoded, buffer size: ${pngBuffer.length} bytes`);
-
         writeFileSync(fullPath, pngBuffer);
-        console.error(`[SCREENSHOT] PNG file written to ${fullPath}`);
-        console.error(`[SCREENSHOT] ===== SCREENSHOT COMPLETE =====`);
 
         return {
           content: [
@@ -682,8 +650,6 @@ async function handleToolCall(name: string, args: any): Promise<{ content: Array
               type: 'text',
               text: `Screenshot saved to: ${fullPath}\n` +
                     `Dimensions: ${screenData.width}x${screenData.height}\n` +
-                    `Source format: Indexed8\n` +
-                    `Source data size: ${screenData.data.length} bytes\n` +
                     `PNG file size: ${pngBuffer.length} bytes`
             }
           ]

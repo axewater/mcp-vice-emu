@@ -4,7 +4,6 @@
  */
 
 import { Socket } from 'net';
-import { writeFileSync } from 'fs';
 
 // Protocol constants
 const STX = 0x02;
@@ -516,8 +515,8 @@ export class ViceProtocol {
   /**
    * Get current screen buffer
    * Payload format: VC(1) + FM(1)
-   * Format values: 0x00=Indexed8, 0x01=RGB, 0x02=BGR, 0x03=RGBA, 0x04=BGRA
-   * Returns raw pixel buffer - NOT an encoded image format like PNG/BMP
+   * Format: 0x00=Indexed8 (palette-based)
+   * Returns raw pixel buffer
    */
   async getScreen(useVic: boolean = true, format: number = 0x00): Promise<{
     width: number;
@@ -525,88 +524,28 @@ export class ViceProtocol {
     bpp: number;
     data: Buffer;
   }> {
-    console.error(`[SCREEN_GET] ===== STARTING SCREENSHOT CAPTURE =====`);
-    console.error(`[SCREEN_GET] Request parameters: useVic=${useVic}, format=${format}`);
-
     const payload = Buffer.alloc(2);
     payload.writeUInt8(useVic ? 1 : 0, 0);  // VC: Use VIC-II
-    payload.writeUInt8(format, 1);           // FM: Format (default 0 = Indexed8)
+    payload.writeUInt8(format, 1);           // FM: Format (0 = Indexed8)
 
-    console.error(`[SCREEN_GET] Sending command to VICE...`);
     const response = await this.sendCommand(CMD.SCREEN_GET, payload);
 
-    // DEBUG: Log response details
-    console.error(`[SCREEN_GET] ===== RESPONSE RECEIVED =====`);
-    console.error(`[SCREEN_GET] Total response length: ${response.length} bytes`);
-    console.error(`[SCREEN_GET] First 16 bytes (header):`, Array.from(response.subarray(0, Math.min(16, response.length))).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' '));
-    console.error(`[SCREEN_GET] First 64 bytes (hex):`, response.subarray(0, Math.min(64, response.length)).toString('hex'));
-
-    if (response.length > 64) {
-      console.error(`[SCREEN_GET] Bytes 64-128:`, response.subarray(64, Math.min(128, response.length)).toString('hex'));
-    }
-
-    if (response.length > 128) {
-      console.error(`[SCREEN_GET] Last 64 bytes:`, response.subarray(Math.max(0, response.length - 64)).toString('hex'));
-    }
-
-    // DEBUG: Save raw response to file for analysis
-    const rawFilename = `vice-screen-response-${Date.now()}.bin`;
-    writeFileSync(rawFilename, response);
-    console.error(`[SCREEN_GET] Raw response saved to ${rawFilename}`);
-
-    // Response format from VICE SCREEN_GET:
-    // [0-1]   LENGTH_LE_16 (header length)
-    // [2-3]   Reserved/Unknown
-    // [4-5]   Full frame width (504, includes borders)
-    // [6-7]   Full frame height (312, includes borders)
-    // [8-11]  Unknown fields
-    // [12-13] Visible screen width (320)
-    // [14-15] Visible screen height (200)
-    // [16]    BPP (8 for indexed)
-    // [17+]   Image data (full frame: 504x312 bytes)
-    // NOTE: Using full frame dimensions since image data contains the full frame
-    console.error(`[SCREEN_GET] ===== PARSING RESPONSE =====`);
-
     if (response.length < 17) {
-      console.error(`[SCREEN_GET] ERROR: Response too short! Need at least 17 bytes, got ${response.length}`);
       throw new Error(`Response too short: ${response.length} bytes`);
     }
 
-    const lengthField = response.readUInt16LE(0);
-    console.error(`[SCREEN_GET] Length field (bytes 0-1): ${lengthField} (0x${lengthField.toString(16).padStart(4, '0')})`);
-
-    // Read full frame dimensions (actual image data size)
+    // Response format:
+    // [0-1]   Header length
+    // [4-5]   Full frame width (504, includes borders)
+    // [6-7]   Full frame height (312, includes borders)
+    // [12-13] Visible screen width (320)
+    // [14-15] Visible screen height (200)
+    // [16]    Bits per pixel (8 for indexed)
+    // [17+]   Image data
     const width = response.readUInt16LE(4);
     const height = response.readUInt16LE(6);
     const bpp = response.readUInt8(16);
-
-    // Also read visible dimensions for reference
-    const visibleWidth = response.readUInt16LE(12);
-    const visibleHeight = response.readUInt16LE(14);
-
-    console.error(`[SCREEN_GET] Full frame: ${width}x${height}`);
-    console.error(`[SCREEN_GET] Visible area: ${visibleWidth}x${visibleHeight}`);
-    console.error(`[SCREEN_GET] Bits per pixel: ${bpp}`);
-    console.error(`[SCREEN_GET] Bytes per pixel: ${bpp / 8}`);
-
     const imageData = response.subarray(17);
-    console.error(`[SCREEN_GET] Image data offset: 17`);
-    console.error(`[SCREEN_GET] Image data length: ${imageData.length} bytes`);
-
-    const expectedDataSize = width * height * (bpp / 8);
-    console.error(`[SCREEN_GET] Expected data size: ${expectedDataSize} bytes`);
-    console.error(`[SCREEN_GET] Data size match: ${imageData.length === expectedDataSize ? 'YES' : 'NO (MISMATCH!)'}`);
-
-    if (imageData.length !== expectedDataSize) {
-      console.error(`[SCREEN_GET] WARNING: Size mismatch! Missing ${expectedDataSize - imageData.length} bytes`);
-    }
-
-    // DEBUG: Save parsed image data separately
-    const imageDataFilename = `vice-screen-imagedata-${Date.now()}.bin`;
-    writeFileSync(imageDataFilename, imageData);
-    console.error(`[SCREEN_GET] Parsed image data saved to ${imageDataFilename}`);
-    console.error(`[SCREEN_GET] First 32 bytes of image data:`, imageData.subarray(0, Math.min(32, imageData.length)).toString('hex'));
-    console.error(`[SCREEN_GET] ===== SCREENSHOT CAPTURE COMPLETE =====`);
 
     return {
       width,
