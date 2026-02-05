@@ -44,7 +44,7 @@ export class ViceConnection {
       '-binarymonitoraddress', monitorAddress,
       '-sounddev', 'dummy', // Disable sound for headless debugging
     ], {
-      stdio: 'ignore',
+      stdio: ['ignore', 'ignore', 'ignore'], // Use array syntax to avoid Windows 'nul' file creation
       detached: false,
     });
 

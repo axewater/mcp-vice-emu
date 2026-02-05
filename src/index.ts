@@ -466,8 +466,13 @@ async function handleToolCall(name: string, args: any): Promise<{ content: Array
         if (!connection?.connected) throw new Error('Not connected to VICE');
         const { file, run = true, fileIndex = 0 } = args;
         const protocol = connection.getProtocol();
-        await protocol.autostart(file, run ? 0 : 1, fileIndex);
-        return { content: [{ type: 'text', text: `${run ? 'Loaded and running' : 'Loaded'}: ${file}` }] };
+
+        // Always use mode 1 (load only) for .prg files
+        // The BASIC stub in the .prg will auto-execute the machine code
+        // Mode 0 (autostart) tries to use virtual disk/tape which doesn't work well
+        await protocol.autostart(file, 1, fileIndex);
+
+        return { content: [{ type: 'text', text: `Loaded: ${file}` }] };
       }
 
       case 'vice_reset': {

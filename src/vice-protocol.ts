@@ -94,6 +94,7 @@ export class ViceProtocol {
   }> = [];
   private receiveBuffer = Buffer.alloc(0);
   private requestId = 0;
+  private debugMode = process.env.VICE_DEBUG === '1';
 
   constructor(socket: Socket) {
     this.socket = socket;
@@ -114,7 +115,9 @@ export class ViceProtocol {
       // Check API version
       const responseApiVersion = this.receiveBuffer[1];
       if (responseApiVersion !== API_VERSION) {
-        console.error('Unsupported API version:', responseApiVersion, 'expected:', API_VERSION);
+        if (this.debugMode) {
+          console.error('[VICE-DEBUG] Unsupported API version:', responseApiVersion, 'expected:', API_VERSION);
+        }
         this.receiveBuffer = this.receiveBuffer.subarray(1);
         continue;
       }
@@ -124,7 +127,9 @@ export class ViceProtocol {
 
       // Sanity check on body length (prevent huge allocations)
       if (bodyLength > 10 * 1024 * 1024) {
-        console.error('Body length too large:', bodyLength);
+        if (this.debugMode) {
+          console.error('[VICE-DEBUG] Body length too large:', bodyLength);
+        }
         this.receiveBuffer = this.receiveBuffer.subarray(1);
         continue;
       }
@@ -148,18 +153,24 @@ export class ViceProtocol {
       const requestId = message.readUInt32LE(8);  // 4 bytes at offset 8-11
 
       // Debug logging
-      console.error(`[RECV] type=0x${responseType.toString(16).padStart(2, '0')} err=0x${errorCode.toString(16).padStart(2, '0')} reqId=0x${requestId.toString(16).padStart(8, '0')} bodyLen=${bodyLength} queue=${this.responseQueue.length}`);
+      if (this.debugMode) {
+        console.error(`[VICE-DEBUG] [RECV] type=0x${responseType.toString(16).padStart(2, '0')} err=0x${errorCode.toString(16).padStart(2, '0')} reqId=0x${requestId.toString(16).padStart(8, '0')} bodyLen=${bodyLength} queue=${this.responseQueue.length}`);
+      }
 
       // Skip async events (reqId = 0xFFFFFFFF)
       if (requestId === 0xFFFFFFFF) {
-        console.error(`[RECV] Skipping async event`);
+        if (this.debugMode) {
+          console.error(`[VICE-DEBUG] [RECV] Skipping async event`);
+        }
         continue;
       }
 
       // Simple FIFO - get next waiting handler
       const handler = this.responseQueue.shift();
       if (handler) {
-        console.error(`[RECV] Matched to handler (queue now ${this.responseQueue.length})`);
+        if (this.debugMode) {
+          console.error(`[VICE-DEBUG] [RECV] Matched to handler (queue now ${this.responseQueue.length})`);
+        }
         // Check for errors
         if (errorCode !== 0) {
           handler.reject(new Error(`VICE error code: 0x${errorCode.toString(16).padStart(2, '0')}`));
@@ -169,7 +180,8 @@ export class ViceProtocol {
           handler.resolve(payload);
         }
       } else {
-        console.error(`[RECV] WARNING: No handler waiting for response!`);
+        // This is always important to see, even without debug mode
+        console.error(`[VICE] WARNING: No handler waiting for response!`);
       }
     }
   }
@@ -213,8 +225,10 @@ export class ViceProtocol {
     packet[packet.length - 1] = checksum;
 
     // Debug logging
-    console.error(`[SEND] CMD=0x${commandId.toString(16).padStart(2, '0')} reqId=0x${this.requestId.toString(16).padStart(8, '0')} bodyLen=${bodyLength} packet=${packet.length}b`);
-    console.error(`[SEND]`, Array.from(packet).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' '));
+    if (this.debugMode) {
+      console.error(`[VICE-DEBUG] [SEND] CMD=0x${commandId.toString(16).padStart(2, '0')} reqId=0x${this.requestId.toString(16).padStart(8, '0')} bodyLen=${bodyLength} packet=${packet.length}b`);
+      console.error(`[VICE-DEBUG] [SEND]`, Array.from(packet).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' '));
+    }
 
     return new Promise((resolve, reject) => {
       this.responseQueue.push({ resolve, reject });
