@@ -6,6 +6,8 @@ import { spawn, ChildProcess } from 'child_process';
 import { Socket } from 'net';
 import { ViceProtocol } from './vice-protocol.js';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 
 export interface ViceConfig {
   vicePath: string;
@@ -19,6 +21,7 @@ export class ViceConnection {
   private socket: Socket | null = null;
   private protocol: ViceProtocol | null = null;
   private isConnected = false;
+  private logFilePath: string | null = null;
 
   constructor(config: ViceConfig) {
     this.config = config;
@@ -35,25 +38,41 @@ export class ViceConnection {
     const emulatorPath = path.join(this.config.vicePath, `${this.config.emulator}.exe`);
     const monitorAddress = `127.0.0.1:${this.config.monitorPort}`;
 
+    // Create log file for VICE output
+    const logDir = path.join(os.tmpdir(), 'vice-mcp');
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+    this.logFilePath = path.join(logDir, `vice-${Date.now()}.log`);
+
+    // Open log file with file descriptor for stdio redirection
+    const logFd = fs.openSync(this.logFilePath, 'w');
+
     console.error(`[VICE] Launching ${emulatorPath}`);
     console.error(`[VICE] Binary monitor on ${monitorAddress}`);
+    console.error(`[VICE] Log file: ${this.logFilePath}`);
 
     // Launch VICE with binary monitor enabled
+    // Redirect stdout and stderr to log file to prevent console flooding
+    // Note: VICE emulator window will still be visible for interaction
     this.process = spawn(emulatorPath, [
       '-binarymonitor',
       '-binarymonitoraddress', monitorAddress,
       '-sounddev', 'dummy', // Disable sound for headless debugging
     ], {
-      stdio: ['ignore', 'ignore', 'ignore'], // Use array syntax to avoid Windows 'nul' file creation
+      stdio: ['ignore', logFd, logFd], // Redirect stdout and stderr to log file
       detached: false,
+      // windowsHide removed - we want the VICE window visible for user interaction
     });
 
     this.process.on('error', (err) => {
       console.error('[VICE] Process error:', err);
+      fs.closeSync(logFd);
     });
 
     this.process.on('exit', (code) => {
       console.error(`[VICE] Process exited with code ${code}`);
+      fs.closeSync(logFd);
       this.cleanup();
     });
 
@@ -125,6 +144,9 @@ export class ViceConnection {
     }
 
     this.cleanup();
+    if (this.logFilePath) {
+      console.error(`[VICE] Log file saved: ${this.logFilePath}`);
+    }
     console.error('[VICE] Disconnected');
   }
 

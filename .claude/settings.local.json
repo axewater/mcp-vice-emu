@@ -16,7 +16,9 @@
       "WebFetch(domain:vice-emu.sourceforge.io)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(C:binvicebinx64sc.exe --version)",
-      "Bash(\"C:\\\\bin\\\\vice\\\\bin\\\\x64sc.exe\" --version)"
+      "Bash(\"C:\\\\bin\\\\vice\\\\bin\\\\x64sc.exe\" --version)",
+      "mcp__mcp-vice-emu__vice_connect",
+      "mcp__mcp-vice-emu__vice_load"
     ]
   }
 }
