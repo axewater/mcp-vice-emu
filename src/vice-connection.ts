@@ -94,6 +94,9 @@ export class ViceConnection {
         // Test connection with ping
         await this.protocol.ping();
 
+        // Resume execution (VICE starts paused when binary monitor connects)
+        await this.protocol.resume();
+
         this.isConnected = true;
         console.error('[VICE] Connected to binary monitor');
         return;
