@@ -35,7 +35,8 @@ export class ViceConnection {
       throw new Error('Already connected to VICE');
     }
 
-    const emulatorPath = path.join(this.config.vicePath, `${this.config.emulator}.exe`);
+    const exeSuffix = process.platform === 'win32' ? '.exe' : '';
+    const emulatorPath = path.join(this.config.vicePath, `${this.config.emulator}${exeSuffix}`);
     const monitorAddress = `127.0.0.1:${this.config.monitorPort}`;
 
     // Create log file for VICE output
