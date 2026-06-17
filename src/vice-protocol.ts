@@ -397,14 +397,25 @@ export class ViceProtocol {
     cpuType: number = 0,
     tempUntilHit: boolean = false
   ): Promise<number> {
-    const payload = Buffer.alloc(15);
-    payload.writeUInt32LE(startAddr, 0);
-    payload.writeUInt32LE(endAddr, 4);
-    payload.writeUInt8(stopWhenHit ? 1 : 0, 8);
-    payload.writeUInt8(enabled ? 1 : 0, 9);
-    payload.writeUInt8(cpuType, 10);
-    payload.writeUInt8(operation, 11);
-    payload.writeUInt8(tempUntilHit ? 1 : 0, 14);
+    // VICE binary monitor CHECKPOINT_SET (0x12) body uses 16-bit addresses,
+    // identical to the memory commands (see memoryGet). The earlier 4-byte
+    // (UInt32LE) encoding in a 15-byte buffer misaligned every field, fed VICE
+    // an invalid operation byte, and wedged/killed the monitor on every call.
+    //   byte 0-1: start address (uint16 LE)
+    //   byte 2-3: end address   (uint16 LE)
+    //   byte 4:   stop when hit
+    //   byte 5:   enabled
+    //   byte 6:   CPU operation (1=load, 2=store, 4=exec)
+    //   byte 7:   temporary
+    //   byte 8:   memory space (0=main)  [optional in newer VICE, harmless]
+    const payload = Buffer.alloc(9);
+    payload.writeUInt16LE(startAddr & 0xffff, 0);
+    payload.writeUInt16LE(endAddr & 0xffff, 2);
+    payload.writeUInt8(stopWhenHit ? 1 : 0, 4);
+    payload.writeUInt8(enabled ? 1 : 0, 5);
+    payload.writeUInt8(operation, 6);
+    payload.writeUInt8(tempUntilHit ? 1 : 0, 7);
+    payload.writeUInt8(cpuType /* memspace: 0=main */, 8);
 
     const response = await this.sendCommand(CMD.CHECKPOINT_SET, payload);
     return response.readUInt32LE(0); // Checkpoint ID
